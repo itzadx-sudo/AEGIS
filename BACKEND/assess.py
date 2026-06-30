@@ -111,7 +111,7 @@ RULES:
 # ── LLM call ─────────────────────────────────────────────────────────────────
 
 def call_llm(prompt: str) -> str:
-    url = "http://localhost:8000/v1/chat/completions"
+    url = config.LLM_SERVER_URL
     payload = {
         "model": config.LLM_MODEL,
         "messages": [

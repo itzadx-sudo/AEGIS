@@ -38,7 +38,7 @@ that would provide the missing information needed to resolve this finding.
 The question must be answerable in 1-3 sentences.
 Reply with only the question. No preamble."""
 
-    url = "http://localhost:8000/v1/chat/completions"
+    url = config.LLM_SERVER_URL
     payload = {
         "model": config.LLM_MODEL,
         "messages": [{"role": "user", "content": prompt}],

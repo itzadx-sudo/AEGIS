@@ -81,7 +81,11 @@ class SubmitAnswersRequest(BaseModel):
 def _save_upload(file: UploadFile, subdir: str = "") -> str:
     folder = os.path.join(UPLOAD_DIR, subdir) if subdir else UPLOAD_DIR
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, f"{uuid.uuid4().hex}_{file.filename}")
+    # Strip any directory components from the client-supplied filename so it can
+    # never traverse outside `folder` (e.g. "x/../../etc/passwd"). The uuid
+    # prefix guarantees uniqueness; basename() guarantees containment.
+    safe_name = os.path.basename(file.filename or "") or "upload"
+    path = os.path.join(folder, f"{uuid.uuid4().hex}_{safe_name}")
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     return path

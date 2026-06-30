@@ -36,12 +36,31 @@ export function AnalysisPage({ navigate, sessionId }) {
   const [current, setCurrent] = useState(0);
 
   const pollRef = useRef(null);
+  const genRef = useRef(null);
+  const mountedRef = useRef(true);
   const clearPoll = () => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
   };
+  const clearGen = () => {
+    if (genRef.current) {
+      clearInterval(genRef.current);
+      genRef.current = null;
+    }
+  };
+
+  // Stop every timer if the page unmounts (e.g. user navigates away mid-run)
+  // so no stray setState / navigate fires after the component is gone.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearPoll();
+      clearGen();
+    };
+  }, []);
 
   const loadQuestions = useCallback(async () => {
     const resp = await api.getQuestions(sessionId);
@@ -131,25 +150,37 @@ export function AnalysisPage({ navigate, sessionId }) {
     try {
       await api.generateReport(sessionId);
       await new Promise((resolve, reject) => {
-        const iv = setInterval(async () => {
+        clearGen();
+        genRef.current = setInterval(async () => {
+          // Bail out silently if the page unmounted while we were polling.
+          if (!mountedRef.current) {
+            clearGen();
+            return;
+          }
           try {
             const s = await api.getSessionStatus(sessionId);
+            if (!mountedRef.current) {
+              clearGen();
+              return;
+            }
             setStatus(s.status);
             if (s.status === "complete") {
-              clearInterval(iv);
+              clearGen();
               resolve();
             } else if (s.status === "failed") {
-              clearInterval(iv);
+              clearGen();
               reject(new Error(s.error || "Report generation failed."));
             }
           } catch (err) {
-            clearInterval(iv);
+            clearGen();
             reject(err);
           }
         }, POLL_MS);
       });
+      if (!mountedRef.current) return;
       navigate("results");
     } catch (err) {
+      if (!mountedRef.current) return;
       setPhase("questions");
       setError(err?.detail || err?.message || "Couldn't generate the report.");
     }
