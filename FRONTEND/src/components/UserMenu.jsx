@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   IconHistory,
   IconShieldCheck,
@@ -15,9 +16,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { SESSIONS } from "@/data/risks";
+import { api, adaptSessions } from "@/lib/api";
 
-export function UserMenu({ navigate }) {
+export function UserMenu({ navigate, setSessionId }) {
+  const [sessions, setSessions] = useState([]);
+
+  // Load past sessions from the backend whenever the menu mounts.
+  useEffect(() => {
+    let alive = true;
+    api
+      .listSessions()
+      .then((resp) => alive && setSessions(adaptSessions(resp)))
+      .catch(() => alive && setSessions([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  function openSession(s) {
+    setSessionId?.(s.id);
+    navigate(s.target);
+  }
+
   return (
     <DropdownMenu>
       {/* Trigger — compact account chip */}
@@ -70,46 +90,52 @@ export function UserMenu({ navigate }) {
               <IconHistory className="h-3.5 w-3.5 text-crimson-light" />
               Recent sessions
             </span>
-            <span>{SESSIONS.length}</span>
+            <span>{sessions.length}</span>
           </div>
 
           <div className="flex flex-col gap-[3px]">
-            {SESSIONS.map((s) => (
-              <DropdownMenuItem
-                key={s.name}
-                onSelect={() => navigate(s.target)}
-                className="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-[rgba(255,59,74,0.08)] data-[highlighted]:bg-[rgba(255,59,74,0.08)]"
-              >
-                <span
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
-                    s.status === "done"
-                      ? "bg-[var(--crimson-pale)] text-crimson-light"
-                      : "bg-void-2 text-ink-faint"
-                  )}
+            {sessions.length === 0 ? (
+              <div className="px-2.5 py-4 text-center text-[12px] text-ink-faint">
+                No sessions yet
+              </div>
+            ) : (
+              sessions.map((s) => (
+                <DropdownMenuItem
+                  key={s.id}
+                  onSelect={() => openSession(s)}
+                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-[rgba(255,59,74,0.08)] data-[highlighted]:bg-[rgba(255,59,74,0.08)]"
                 >
-                  {s.status === "done" ? (
-                    <IconShieldCheck className="h-4 w-4" />
-                  ) : (
-                    <IconShield className="h-4 w-4" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12.5px] font-semibold text-ink">
-                    {s.name}
+                  <span
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
+                      s.status === "done"
+                        ? "bg-[var(--crimson-pale)] text-crimson-light"
+                        : "bg-void-2 text-ink-faint"
+                    )}
+                  >
+                    {s.status === "done" ? (
+                      <IconShieldCheck className="h-4 w-4" />
+                    ) : (
+                      <IconShield className="h-4 w-4" />
+                    )}
                   </span>
-                  <span className="block truncate text-[11px] text-ink-faint">
-                    {s.system}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12.5px] font-semibold text-ink">
+                      {s.name}
+                    </span>
+                    <span className="block truncate text-[11px] text-ink-faint">
+                      {s.system}
+                    </span>
                   </span>
-                </span>
-                <Badge
-                  variant={s.status === "done" ? "done" : "draft"}
-                  size="pill"
-                >
-                  {s.status === "done" ? "Complete" : "Draft"}
-                </Badge>
-              </DropdownMenuItem>
-            ))}
+                  <Badge
+                    variant={s.status === "done" ? "done" : "draft"}
+                    size="pill"
+                  >
+                    {s.status === "done" ? "Complete" : "Draft"}
+                  </Badge>
+                </DropdownMenuItem>
+              ))
+            )}
           </div>
         </div>
 
@@ -119,7 +145,10 @@ export function UserMenu({ navigate }) {
             <IconLogout className="h-3.5 w-3.5" /> Sign out
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => navigate("upload")}
+            onSelect={() => {
+              setSessionId?.(null);
+              navigate("upload");
+            }}
             className="flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[var(--crimson)] to-[var(--crimson-deep)] px-3.5 py-1.5 text-[11.5px] font-semibold text-white shadow-[0_4px_14px_rgba(255,59,74,0.4)] transition-transform data-[highlighted]:-translate-y-px">
             <IconPlus className="h-3.5 w-3.5" /> New session
           </DropdownMenuItem>

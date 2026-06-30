@@ -15,7 +15,7 @@ const NAV_ITEMS = [
 
 // Console-style command bar: monospace command segments with numeric indices
 // and a sliding caret/underline that tracks the active route.
-export function Navbar({ active, navigate }) {
+export function Navbar({ active, navigate, setSessionId }) {
   return (
     <nav className="sticky top-0 z-50 flex h-[68px] items-center gap-8 border-b border-border bg-[rgba(7,8,11,0.85)] px-16 shadow-[0_18px_50px_rgba(0,0,0,0.6)] backdrop-blur-md">
       {/* Identity */}
@@ -78,7 +78,7 @@ export function Navbar({ active, navigate }) {
 
       <div className="flex-1" />
 
-      <UserMenu navigate={navigate} />
+      <UserMenu navigate={navigate} setSessionId={setSessionId} />
     </nav>
   );
 }

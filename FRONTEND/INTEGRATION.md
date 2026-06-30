@@ -9,11 +9,16 @@ components already render. Wiring a page up = replace its mock import with an
 ## Setup
 
 1. `cp .env.example .env` (leave `VITE_API_BASE_URL` empty for local dev).
-2. Run the backend: `uvicorn api:app --reload` (defaults to `:8000`).
-3. Run the frontend: `npm run dev`. Vite proxies `/uploads`, `/sessions`,
-   `/knowledge-base`, `/health` to the backend — no CORS setup needed in dev.
+2. Start the GPU inference engines (cross-platform): from `BACKEND/`, run
+   `./run_gpu.sh` (macOS/Linux) or `run_gpu.ps1` (Windows). They serve the LLM
+   on `:8000` and embeddings on `:8001`.
+3. Run the API: from `FRONTEND/`, `uvicorn api:app --port 8080 --reload`
+   (`:8080` avoids the LLM server on `:8000`). `api.py` already enables CORS for
+   the Vite dev origin.
+4. Run the frontend: `npm run dev`. Vite proxies `/uploads`, `/sessions`,
+   `/knowledge-base`, `/health` to the backend on `:8080`.
    (For a deployed build, set `VITE_API_BASE_URL` to the backend origin and
-   enable CORS in FastAPI.)
+   add the origin to `AEGIS_CORS_ORIGINS`.)
 
 ## Severity keys line up already
 

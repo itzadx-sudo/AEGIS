@@ -68,42 +68,61 @@ Reply with only the question. No preamble."""
 
 # ── Session management ────────────────────────────────────────────────────────
 
-def save_session(session: dict):
-    os.makedirs("reports", exist_ok=True)
-    with open(SESSION_FILE, "w") as f:
+def save_session(session: dict, path: str = None):
+    """
+    Persist a session dict to disk.
+
+    `path` lets the web API give each assessment its own session file
+    (reports/session_<id>.json) so concurrent sessions never overwrite each
+    other. CLI usage passes nothing and falls back to the shared SESSION_FILE.
+    """
+    path = path or SESSION_FILE
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
         json.dump(session, f, indent=2)
 
 
-def load_session() -> dict:
-    if not os.path.exists(SESSION_FILE):
+def load_session(path: str = None) -> dict:
+    path = path or SESSION_FILE
+    if not os.path.exists(path):
         print("❌ No session found. Run assessment first: python main.py assess ...")
         return None
-    with open(SESSION_FILE) as f:
+    with open(path) as f:
         return json.load(f)
 
 
 # ── Build session after initial assessment ────────────────────────────────────
 
-def build_session(findings: list, summary: dict, service_name: str):
+def build_session(findings: list, summary: dict, service_name: str,
+                  session_path: str = None) -> str:
     """
-    Called at end of assess run. Generates follow-up questions for
-    GAP and PARTIAL findings and saves session file.
+    Called at end of an assess run. Generates follow-up questions for GAP and
+    PARTIAL findings and saves the session file.
+
+    Returns the path the session was saved to. The session is ALWAYS written
+    (even when there are no follow-up questions) so the web API can load it to
+    drive the Analysis/Results pages — `followup_questions` is simply empty in
+    that case.
+
+    `session_path` lets the API give each assessment its own file; CLI usage
+    omits it and falls back to the shared SESSION_FILE.
     """
+    session_path = session_path or SESSION_FILE
+
     needs_followup = [
         f for f in findings
         if f.get("overall_status") in ("GAP", "PARTIAL")
     ]
 
-    if not needs_followup:
-        print("\n✅ No GAPs or PARTIALs — no follow-up questions needed.")
-        return
-
-    print(f"\n⚙️  Generating follow-up questions for {len(needs_followup)} findings...")
     questions = {}
-    for f in needs_followup:
-        cid = f["control_id"]
-        print(f"  [{cid}] generating question...")
-        questions[cid] = generate_followup_question(f)
+    if needs_followup:
+        print(f"\n⚙️  Generating follow-up questions for {len(needs_followup)} findings...")
+        for f in needs_followup:
+            cid = f["control_id"]
+            print(f"  [{cid}] generating question...")
+            questions[cid] = generate_followup_question(f)
+    else:
+        print("\n✅ No GAPs or PARTIALs — no follow-up questions needed.")
 
     session = {
         "service_name":       service_name,
@@ -113,9 +132,11 @@ def build_session(findings: list, summary: dict, service_name: str):
         "followup_answers":   {},
         "resolved_findings":  {},
     }
-    save_session(session)
-    print(f"\n📁 Session saved: {SESSION_FILE}")
-    print(f"   Run follow-up: python main.py followup")
+    save_session(session, session_path)
+    print(f"\n📁 Session saved: {session_path}")
+    if questions:
+        print(f"   Run follow-up: python main.py followup")
+    return session_path
 
 
 # ── Interactive follow-up loop ────────────────────────────────────────────────
@@ -176,8 +197,17 @@ def run_followup():
     _resolve(session, answered_now.keys())
 
 
-def _resolve(session: dict, control_ids=None):
-    """Re-assess controls that now have follow-up answers."""
+def _resolve(session: dict, control_ids=None, session_path: str = None,
+             regenerate_report: bool = True):
+    """Re-assess controls that now have follow-up answers.
+
+    `session_path` controls where progress is persisted (per-session file for
+    the web API; shared SESSION_FILE for the CLI).
+
+    `regenerate_report` lets the web API skip the inline PDF/Excel rebuild —
+    the API rebuilds a single consolidated report after this returns, so we
+    avoid generating it twice.
+    """
     findings_map      = {f["control_id"]: f for f in session["findings"]}
     resolved_map      = session.get("resolved_findings", {})
     followup_answers  = session.get("followup_answers", {})
@@ -238,7 +268,7 @@ def _resolve(session: dict, control_ids=None):
         print(f"    {original['overall_status']} → {finding['overall_status']} | {original.get('rmf_level','?')} → {finding.get('rmf_level','?')}")
 
     session["resolved_findings"] = resolved_map
-    save_session(session)
+    save_session(session, session_path)
 
     # Merge resolved findings back into full findings list
     final_findings = []
@@ -247,8 +277,14 @@ def _resolve(session: dict, control_ids=None):
         final_findings.append(resolved_map.get(cid, f))
 
     final_summary = summarize_findings(final_findings)
+    session["final_summary"] = final_summary
+    save_session(session, session_path)
 
-    # Regenerate report
+    if not regenerate_report:
+        # The web API builds the consolidated report itself once this returns.
+        return
+
+    # Regenerate report (CLI path)
     import report
     service_name = session.get("service_name", "IT Service")
     pdf_path, excel_path = report.generate_all(
@@ -266,5 +302,4 @@ def _resolve(session: dict, control_ids=None):
     print(f"\n✅ Updated report: {pdf_path}")
     print(f"   Updated Excel : {excel_path}")
 
-    session["final_summary"] = final_summary
-    save_session(session)
+    save_session(session, session_path)

@@ -155,10 +155,10 @@ in the PDF executive summary and the Excel "Section Scores" tab.
 
 ---
 
-## Benchmark / Model Evaluation GUI
+## Benchmark / Model Evaluation
 
 ```bash
-streamlit run gui_app.py
+python benchmark.py --hecvat path/to/vendor_filled_hecvat.xlsx --n 10
 ```
 
 Measures tokens/second, TTFT, parse rate per model on real HECVAT controls.
@@ -192,9 +192,8 @@ aegis/
 ├── rag.py             # Dual-source retrieval (policy + vendor evidence)
 ├── assess.py          # Gap analysis + numeric risk scoring
 ├── report.py          # PDF + Excel report generation
-├── benchmark.py       # Instrumented model evaluation layer
+├── benchmark.py       # Instrumented model evaluation CLI
 ├── results_writer.py  # Append-only benchmark log
-├── gui_app.py         # Streamlit benchmark dashboard
 ├── chroma_db/         # ChromaDB vector store (auto-created)
 ├── reports/           # Assessment outputs (auto-created)
 └── docs/

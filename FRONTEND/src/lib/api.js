@@ -9,7 +9,7 @@
  *
  * Configure the backend origin with VITE_API_BASE_URL (see .env.example).
  * In dev, vite.config.js also proxies the API route prefixes to the backend,
- * so leaving VITE_API_BASE_URL empty + running the backend on :8000 just works.
+ * so leaving VITE_API_BASE_URL empty + running the backend on :8080 just works.
  */
 
 import { SEV_LABELS } from "@/data/risks";
@@ -165,7 +165,7 @@ export function adaptUploadFile(resp) {
   };
 }
 
-/** GET /questions → AnalysisPage's OPEN_QUESTIONS shape ({ id, text, ref }). */
+/** GET /questions → AnalysisPage question shape ({ id, text, ref, answered, answer }). */
 export function adaptQuestions(resp) {
   return {
     items: (resp.items ?? []).map((q) => ({

@@ -17,16 +17,24 @@ Design notes:
 """
 
 import os
+import sys
 import uuid
 import shutil
-import glob
 import json
 from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+# api.py lives in FRONTEND/ but the assessment engine lives in ../BACKEND.
+# Put BACKEND on the import path so `import assess` etc. resolve regardless of
+# the working directory uvicorn was launched from.
+BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "BACKEND"))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
 import ingest
 import assess
@@ -34,6 +42,18 @@ import report
 import followup
 
 app = FastAPI(title="Aegis Risk Assessment API", version="1.0")
+
+# Allow the Vite dev server (and any configured deployed origin) to call the API.
+# AEGIS_CORS_ORIGINS is a comma-separated list; defaults cover local dev.
+_default_origins = "http://localhost:5173,http://127.0.0.1:5173"
+_cors_origins = [o.strip() for o in os.environ.get("AEGIS_CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR  = "./uploads_tmp"
 REPORTS_DIR = "./reports"
@@ -151,13 +171,17 @@ def upload_vendor_hecvat(file: UploadFile = File(...), service_name: str = "Unkn
 def kb_stats():
     """Used by the upload page to show ingested document counts, if displayed."""
     import chromadb
-    client = chromadb.PersistentClient(path="./chroma_db")
+    import config
+    client = chromadb.PersistentClient(path=config.CHROMA_DIR)
     out = {}
-    for name in ["internal_policies", "soc2_controls"]:
+    for key, name in (
+        ("internal_policies", config.CHROMA_COLLECTION_POLICIES),
+        ("soc2_controls",     config.CHROMA_COLLECTION_SOC2),
+    ):
         try:
-            out[name] = client.get_collection(name).count()
+            out[key] = client.get_collection(name).count()
         except Exception:
-            out[name] = 0
+            out[key] = 0
     return out
 
 
@@ -173,7 +197,9 @@ def _run_full_assessment(session_id: str):
         findings = assess.run_assessment(meta["hecvat_path"], meta["service_name"])
         summary  = assess.summarize_findings(findings)
 
-        session_file = followup.build_session(findings, summary, meta["service_name"])
+        # One JSON file per assessment so concurrent sessions never collide.
+        session_file = os.path.join(REPORTS_DIR, f"session_{session_id}.json")
+        followup.build_session(findings, summary, meta["service_name"], session_path=session_file)
         meta["session_file"] = session_file
 
         session = _load_session_file(session_id)
@@ -267,7 +293,7 @@ def submit_one_answer(session_id: str, control_id: str, body: FollowupAnswer):
         raise HTTPException(400, "control_id mismatch")
 
     session["followup_answers"][control_id] = body.answer
-    followup.save_session(session)
+    followup.save_session(session, SESSIONS[session_id]["session_file"])
     return {"status": "saved", "control_id": control_id}
 
 
@@ -289,7 +315,7 @@ def submit_answers_batch(session_id: str, body: SubmitAnswersRequest):
 
     for item in body.answers:
         session["followup_answers"][item.control_id] = item.answer
-    followup.save_session(session)
+    followup.save_session(session, SESSIONS[session_id]["session_file"])
 
     if body.pause_after:
         SESSIONS[session_id]["status"] = "paused"
@@ -350,7 +376,13 @@ def _run_resolve_and_report(session_id: str):
         answered_ids = list(session.get("followup_answers", {}).keys())
 
         if answered_ids:
-            followup._resolve(session, answered_ids)   # writes its own report internally
+            # Re-assess answered controls, persisting to this session's own file.
+            # regenerate_report=False: we build the consolidated report below.
+            followup._resolve(
+                session, answered_ids,
+                session_path=meta["session_file"],
+                regenerate_report=False,
+            )
             session = _load_session_file(session_id)   # reload post-resolve
 
         # Merge resolved findings for a consistent final report object
@@ -414,7 +446,8 @@ def get_results(session_id: str, severity: Optional[str] = None):
     resolved = session.get("resolved_findings", {})
     findings = [resolved.get(f["control_id"], f) for f in session["findings"]]
 
-    sev_key_map = {"VERY HIGH": "vh", "HIGH": "h", "MEDIUM": "m", "MINOR": "mn", "LOW": "l"}
+    # rmf_level values come from config.RMF_MATRIX: EXTREME is the top tier.
+    sev_key_map = {"EXTREME": "vh", "HIGH": "h", "MEDIUM": "m", "MINOR": "mn", "LOW": "l"}
     counts = {"vh": 0, "h": 0, "m": 0, "mn": 0, "l": 0}
     risk_cards = []
 

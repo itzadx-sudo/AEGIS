@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { RISKS, SEV_SUMMARY, SEV_ORDER, SEV_LABELS } from "@/data/risks";
+import { SEV_ORDER, SEV_LABELS } from "@/data/risks";
 
 // Severity colour (space-separated RGB for use in rgb(... / alpha)).
 const SEV_RGB = {
@@ -33,12 +33,16 @@ function verdictFor(index) {
   return { label: "Low", rgb: SEV_RGB.l };
 }
 
-export function RiskRadar() {
+/**
+ * @param {object[]} risks   live findings: [{ sev, title, ... }]
+ * @param {object[]} summary per-severity tallies: [{ sev, label, count, tag }]
+ */
+export function RiskRadar({ risks = [], summary = [] }) {
   // Deterministic blip placement: golden-angle spiral for an organic spread,
   // radius fixed by severity band with a little jitter so rings aren't rigid.
   const blips = useMemo(
     () =>
-      RISKS.map((r, i) => {
+      risks.map((r, i) => {
         const ang = i * 137.508 * (Math.PI / 180);
         const jitter = ((i % 3) - 1) * 7;
         const rad = (BAND[r.sev] ?? 0.93) * R + jitter;
@@ -49,16 +53,16 @@ export function RiskRadar() {
           y: C + rad * Math.sin(ang),
         };
       }),
-    []
+    [risks]
   );
 
-  const total = SEV_SUMMARY.reduce((s, v) => s + v.count, 0);
-  const score = SEV_SUMMARY.reduce((s, v) => s + v.count * WEIGHT[v.sev], 0);
+  const total = summary.reduce((s, v) => s + v.count, 0);
+  const score = summary.reduce((s, v) => s + v.count * WEIGHT[v.sev], 0);
   const index = total === 0 ? 0 : Math.min(100, Math.round((score / (total * 10)) * 100));
   const verdict = verdictFor(index);
 
-  const vhCount = SEV_SUMMARY.find((s) => s.sev === "vh")?.count ?? 0;
-  const hCount = SEV_SUMMARY.find((s) => s.sev === "h")?.count ?? 0;
+  const vhCount = summary.find((s) => s.sev === "vh")?.count ?? 0;
+  const hCount = summary.find((s) => s.sev === "h")?.count ?? 0;
 
   return (
     <div className="surface-panel mb-6 grid grid-cols-1 items-stretch gap-9 overflow-hidden p-8 lg:grid-cols-[264px_minmax(0,1fr)_1px_minmax(0,1fr)]">
@@ -199,7 +203,7 @@ export function RiskRadar() {
 
         <div className="mx-auto grid w-full max-w-[320px] grid-cols-2 gap-x-8 gap-y-6">
           {SEV_ORDER.map((sev) => {
-            const count = SEV_SUMMARY.find((s) => s.sev === sev)?.count ?? 0;
+            const count = summary.find((s) => s.sev === sev)?.count ?? 0;
             return (
               <div
                 key={sev}

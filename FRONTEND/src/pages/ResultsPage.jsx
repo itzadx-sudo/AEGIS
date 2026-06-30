@@ -1,13 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { IconSearch, IconFileTypePdf, IconPresentation } from "@tabler/icons-react";
+import {
+  IconSearch,
+  IconFileTypePdf,
+  IconFileSpreadsheet,
+  IconLoader2,
+  IconShieldCheck,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { RiskRadar } from "@/components/RiskRadar";
 import { cn } from "@/lib/utils";
-import { RISKS, SEV_LABELS, SEV_ORDER } from "@/data/risks";
+import { SEV_LABELS, SEV_ORDER } from "@/data/risks";
+import { api, adaptResults } from "@/lib/api";
 
 const CHIP_ON = {
   vh: "bg-alarm border-alarm text-white",
@@ -17,10 +24,6 @@ const CHIP_ON = {
   l: "bg-slate border-slate text-white",
 };
 
-// Opaque solid header fills (each severity tint pre-composited over the
-// near-black panel) so the sticky group labels render reliably and don't need
-// to backdrop-blur the scrolling content behind them — that was the main cause
-// of the laggy hover/scroll in the findings list.
 const GROUP_LABEL = {
   vh: "bg-[#2d080d] text-alarm-light border-b-[rgba(227,28,47,0.28)]",
   h: "bg-[#2d170f] text-ember border-b-[rgba(255,122,61,0.25)]",
@@ -37,14 +40,39 @@ const DOT = {
   l: "bg-slate",
 };
 
-// Springy layout transition shared by every animated row.
 const LAYOUT_SPRING = { type: "spring", stiffness: 420, damping: 34, mass: 0.7 };
 
-export function ResultsPage() {
+export function ResultsPage({ navigate, sessionId }) {
+  const [data, setData] = useState(null); // { counts, summary, risks }
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filters, setFilters] = useState(new Set());
   const [query, setQuery] = useState("");
 
-  const idxOf = useMemo(() => new Map(RISKS.map((r, i) => [r, i])), []);
+  useEffect(() => {
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    api
+      .getResults(sessionId)
+      .then((resp) => {
+        if (alive) {
+          setData(adaptResults(resp));
+          setError("");
+        }
+      })
+      .catch((err) => alive && setError(err?.detail || "Couldn't load results."))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
+
+  const risks = data?.risks ?? [];
+  const idxOf = useMemo(() => new Map(risks.map((r, i) => [r, i])), [risks]);
 
   function toggleFilter(sev) {
     setFilters((prev) => {
@@ -55,19 +83,17 @@ export function ResultsPage() {
   }
 
   const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    return RISKS.filter((r) => {
+    const qy = query.toLowerCase();
+    return risks.filter((r) => {
       const matchSev = filters.size === 0 || filters.has(r.sev);
       const matchQ =
-        !q ||
-        r.title.toLowerCase().includes(q) ||
-        r.desc.toLowerCase().includes(q);
+        !qy ||
+        (r.title || "").toLowerCase().includes(qy) ||
+        (r.desc || "").toLowerCase().includes(qy);
       return matchSev && matchQ;
     });
-  }, [filters, query]);
+  }, [risks, filters, query]);
 
-  // Flatten into an ordered stream of header + item nodes so framer-motion can
-  // animate position changes across severity groups as things filter in/out.
   const rows = useMemo(() => {
     const groups = {};
     filtered.forEach((r) => {
@@ -84,6 +110,46 @@ export function ResultsPage() {
     return out;
   }, [filtered, idxOf]);
 
+  // ── Loading / empty / error ──────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <PageShell>
+        <PageHeader title="Risk results" subtitle="Loading your findings…" />
+        <div className="surface-panel flex items-center justify-center gap-3 p-16 text-[14px] text-ink-dim">
+          <IconLoader2 className="h-6 w-6 animate-spin text-crimson-light" /> Loading…
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (!sessionId || (!data && !error)) {
+    return (
+      <PageShell>
+        <PageHeader title="Risk results" subtitle="No assessment selected." />
+        <div className="surface-panel flex flex-col items-center gap-4 p-12 text-center">
+          <IconShieldCheck className="h-7 w-7 text-ink-faint" />
+          <div className="max-w-[460px] text-[14px] text-ink-dim">
+            There's no completed assessment to show yet. Upload a HECVAT to get started.
+          </div>
+          <Button variant="primary" onClick={() => navigate("upload")}>
+            Go to upload
+          </Button>
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageShell>
+        <PageHeader title="Risk results" subtitle="Something went wrong." />
+        <div className="surface-panel p-12 text-center text-[14px] text-alarm-light">{error}</div>
+      </PageShell>
+    );
+  }
+
+  const hasFindings = risks.length > 0;
+
   return (
     <PageShell>
       <PageHeader
@@ -91,8 +157,8 @@ export function ResultsPage() {
         subtitle="Risks identified across your uploaded documents. Use the filter bar to narrow by severity."
       />
 
-      {/* Threat radar — signature posture visualisation + severity breakdown */}
-      <RiskRadar />
+      {/* Threat radar — live findings + severity breakdown */}
+      <RiskRadar risks={risks} summary={data.summary} />
 
       {/* Filter bar */}
       <div className="surface-panel mb-4 flex items-center gap-2 px-[15px] py-[11px]">
@@ -161,7 +227,9 @@ export function ResultsPage() {
                 className="p-[46px] text-center text-[13px] text-ink-faint"
               >
                 <IconSearch className="mx-auto mb-2 h-6 w-6 opacity-40" />
-                No findings match your search.
+                {hasFindings
+                  ? "No findings match your search."
+                  : "No gaps or partial findings — this vendor cleared every assessed control."}
               </motion.div>
             ) : (
               rows.map((row) =>
@@ -215,11 +283,15 @@ export function ResultsPage() {
       </div>
 
       <div className="mt-[18px] flex justify-end gap-2">
-        <Button variant="primary">
-          <IconFileTypePdf className="h-4 w-4" /> Download PDF
+        <Button variant="primary" asChild>
+          <a href={api.reportDownloadUrl(sessionId, "pdf")} target="_blank" rel="noreferrer">
+            <IconFileTypePdf className="h-4 w-4" /> Download PDF
+          </a>
         </Button>
-        <Button variant="sea">
-          <IconPresentation className="h-4 w-4" /> Download PPTX
+        <Button variant="sea" asChild>
+          <a href={api.reportDownloadUrl(sessionId, "excel")} target="_blank" rel="noreferrer">
+            <IconFileSpreadsheet className="h-4 w-4" /> Download Excel
+          </a>
         </Button>
       </div>
     </PageShell>

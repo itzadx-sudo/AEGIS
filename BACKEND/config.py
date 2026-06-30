@@ -1,31 +1,62 @@
 # config.py — Aegis Risk Assessment System
 
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 # ── GPU engine (compiled llama.cpp server) ───────────────────────────────────
-# Both the LLM and the embedding model run on the GPU via llama_cpp.server.
-# run_gpu.sh reads these values, so changing the model here changes what launches.
-# Ollama is NOT used for inference here — it runs on CPU in this environment.
+# Both the LLM and the embedding model run via llama_cpp.server. run_gpu.py
+# reads these values (cross-platform), so changing the model here changes what
+# launches on Linux/CUDA, macOS/Metal, or Windows alike.
+#
+# Everything below is overridable via environment variables so the same config
+# works on the VM and on a developer's macOS/Windows machine without edits.
 
-PYBIN = "/home/td01/.pyenv/versions/aegis-env-3.12/bin/python"
+# Python interpreter used to launch the llama.cpp servers. Defaults to the
+# current interpreter so it is correct on any machine/OS. Override with AEGIS_PYBIN
+# (e.g. to point at a dedicated venv).
+PYBIN = os.environ.get("AEGIS_PYBIN") or sys.executable
 
-# LLM (chat/completions) — GPU
-LLM_GGUF_PATH   = "/home/td01/models/google_gemma-3-4b-it-Q4_K_M.gguf"
-LLM_SERVER_PORT = 8000
+# Where the GGUF model files live. On the VM this resolves to /home/td01/models.
+# Override with AEGIS_MODELS_DIR on macOS/Windows.
+MODELS_DIR = os.environ.get("AEGIS_MODELS_DIR") or os.path.join(os.path.expanduser("~"), "models")
+
+# LLM (chat/completions)
+LLM_GGUF_PATH   = os.environ.get("AEGIS_LLM_GGUF") or os.path.join(MODELS_DIR, "google_gemma-3-4b-it-Q4_K_M.gguf")
+LLM_SERVER_PORT = _int_env("AEGIS_LLM_PORT", 8000)
 LLM_SERVER_URL  = f"http://localhost:{LLM_SERVER_PORT}/v1/chat/completions"
 
-# Embeddings — separate GPU server instance (llama_cpp.server --embedding)
-EMBED_GGUF_PATH   = "/home/td01/models/nomic-embed-text-v1.5.f16.gguf"
-EMBED_SERVER_PORT = 8001
+# Embeddings — separate llama_cpp.server --embedding instance
+EMBED_GGUF_PATH   = os.environ.get("AEGIS_EMBED_GGUF") or os.path.join(MODELS_DIR, "nomic-embed-text-v1.5.f16.gguf")
+EMBED_SERVER_PORT = _int_env("AEGIS_EMBED_PORT", 8001)
 EMBED_SERVER_URL  = f"http://localhost:{EMBED_SERVER_PORT}/v1/embeddings"
 
-N_GPU_LAYERS = -1          # offload all layers to GPU
+# GPU offload. -1 = offload all layers (CUDA on Linux/Windows, Metal on Apple
+# Silicon). run_gpu.py auto-detects the platform/GPU and falls back to 0 (CPU)
+# when no GPU is present; AEGIS_N_GPU_LAYERS forces a specific value.
+N_GPU_LAYERS = _int_env("AEGIS_N_GPU_LAYERS", -1)
 
 # Labels only — llama.cpp serves whatever GGUF is loaded above and ignores the
 # "model" field in the OpenAI payload. These remain for display / payload fields.
-OLLAMA_BASE_URL = "http://localhost:11434"   # legacy: benchmark.py model-listing only
-LLM_MODEL       = "qwen3.5:4b"
-EMBED_MODEL     = "nomic-embed-text"
+LLM_MODEL   = os.environ.get("AEGIS_LLM_MODEL", "gemma-3-4b-it")
+EMBED_MODEL = os.environ.get("AEGIS_EMBED_MODEL", "nomic-embed-text")
 
-CHROMA_DIR = "./chroma_db"
+# Used ONLY by the standalone model-benchmarking tool (benchmark.py), which
+# lists/queries models over Ollama. Not part of the assessment pipeline.
+OLLAMA_BASE_URL = os.environ.get("AEGIS_OLLAMA_BASE_URL", "http://localhost:11434")
+
+# Persistent ChromaDB store. Absolute (anchored to this file) so it resolves to
+# BACKEND/chroma_db no matter which directory the API/CLI is launched from.
+CHROMA_DIR = os.environ.get("AEGIS_CHROMA_DIR") or os.path.join(_HERE, "chroma_db")
 
 CHROMA_COLLECTION_POLICIES        = "internal_policies"
 CHROMA_COLLECTION_HECVAT_TEMPLATE = "hecvat_template"
