@@ -1,0 +1,30 @@
+# Aegis — Model Evaluation Prototype
+# Python 3.12+  |  install: pip install -r requirements.txt streamlit
+
+# Vector store
+chromadb>=0.6.0
+pysqlite3-binary
+
+# LLM / embedding client (Ollama)
+ollama>=0.4.0
+
+# Text splitting
+langchain-text-splitters>=0.3.0
+
+# PDF parsing
+PyMuPDF>=1.24.0
+
+# Excel parsing and report generation
+openpyxl>=3.1.0
+
+# PDF report generation
+reportlab>=4.2.0
+
+# Data handling (GUI history table / dataframes)
+pandas>=2.2.0
+
+# Progress bars (CLI benchmark output)
+tqdm>=4.66.0
+
+# GUI dashboard
+streamlit>=1.36.0
