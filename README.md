@@ -1,4 +1,4 @@
-# Sedona
+# Sedona By Team AEGIS
 
 Sedona is a local-first vendor security assessment application. It parses HECVAT workbooks,
 compares answers with institution-approved policy content, optionally uses session-scoped
