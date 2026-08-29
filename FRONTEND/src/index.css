@@ -1,0 +1,323 @@
+/* Self-hosted Archivo (variable font: full 100–900 weight range in one file).
+   Served from /public/fonts so the app has no runtime dependency on Google Fonts. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Archivo-Variable.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Archivo";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Archivo-Italic-Variable.ttf") format("truetype");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Variable.ttf") format("truetype");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Italic-Variable.ttf") format("truetype");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Radar sweep — compositor-only transform animation. Kept as plain CSS (outside
+   @layer) so it always runs off the main thread and is never tree-shaken. */
+@keyframes radarSweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.radar-sweep {
+  animation: radarSweep 4.6s linear infinite;
+  will-change: transform;
+}
+
+/* Nav beacon — the "laser-tag floor arrow" that glows the tab the user should
+   walk to next for the active session. Compositor-only (opacity), kept as plain
+   CSS so it runs off the main thread and is never tree-shaken. */
+@keyframes navBeaconPulse {
+  0%, 100% {
+    opacity: 0.35;
+    box-shadow: 0 0 0 1px rgba(255, 59, 74, 0.35),
+                0 0 10px 1px rgba(255, 59, 74, 0.25);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 1px rgba(255, 59, 74, 0.7),
+                0 0 20px 3px rgba(255, 122, 61, 0.55);
+  }
+}
+.nav-beacon {
+  animation: navBeaconPulse 2s ease-in-out infinite;
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-beacon {
+    animation: none;
+    opacity: 1;
+    box-shadow: 0 0 0 1px rgba(255, 59, 74, 0.55),
+                0 0 14px 2px rgba(255, 122, 61, 0.4);
+  }
+}
+
+/* knowledge-base card: a line that travels down the card while its document is being ingested —
+   the panel-level echo of the living field's scan swarm running behind it */
+@keyframes kbSweep {
+  0%   { transform: translateY(0);     opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateY(var(--kb-sweep-travel, 320px)); opacity: 0; }
+}
+.kb-sweep {
+  animation: kbSweep 1.9s ease-in-out infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kb-sweep { animation: none; opacity: 0.7; }
+}
+
+/* app-wide ambient background — one fixed layer of drifting blurred orbs behind everything (z-index -1) so glass panels read through it */
+.aurora-field {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.22;
+  will-change: transform;
+}
+.aurora-orb--1 {
+  width: 55vw; height: 55vw; left: -8vw; top: -16vh;
+  background: var(--crimson);
+  animation: auroraA 19s ease-in-out infinite;
+}
+.aurora-orb--2 {
+  width: 50vw; height: 50vw; right: -10vw; top: 4vh;
+  background: var(--ember);
+  animation: auroraB 23s ease-in-out infinite;
+}
+.aurora-orb--3 {
+  width: 48vw; height: 48vw; left: 24vw; bottom: -20vh;
+  background: var(--crimson-deep);
+  animation: auroraC 27s ease-in-out infinite;
+}
+@keyframes auroraA { 0%,100% { transform: translate(0,0); } 50% { transform: translate(6vw,5vh); } }
+@keyframes auroraB { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-5vw,4vh); } }
+@keyframes auroraC { 0%,100% { transform: translate(0,0); } 50% { transform: translate(4vw,-5vh); } }
+@media (prefers-reduced-motion: reduce) {
+  .aurora-orb { animation: none; }
+}
+
+/* living pixel field — two fixed canvases sitting just above the aurora (both z-index -1, painted after
+   it in the DOM) and behind all content, so the glass panels' backdrop-filter samples the field. */
+.living-grid,
+.living-field {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* finding-row hover tint matched to each finding's severity, so the highlight reads as one with its
+   dot and badge (colours mirror the --alarm / --ember / --gold / --sand / --slate tokens). */
+.finding-row { transition: background-color 0.28s ease; }
+.finding-row.sev-vh:hover { background: rgba(227, 28, 47, 0.13); }
+.finding-row.sev-h:hover  { background: rgba(255, 122, 61, 0.13); }
+.finding-row.sev-m:hover  { background: rgba(255, 178, 62, 0.12); }
+.finding-row.sev-mn:hover { background: rgba(194, 163, 107, 0.12); }
+.finding-row.sev-l:hover  { background: rgba(113, 122, 136, 0.14); }
+
+@layer base {
+  :root {
+    --crimson: #ff3b4a;
+    --crimson-light: #ff7c73;
+    --crimson-deep: #a8112a;
+    --crimson-pale: rgba(255, 59, 74, 0.16);
+
+    --alarm: #e31c2f;
+    --alarm-light: #ff5c61;
+    --alarm-pale: rgba(227, 28, 47, 0.18);
+
+    --ember: #ff7a3d;
+    --ember-pale: rgba(255, 122, 61, 0.16);
+
+    --gold: #ffb23e;
+    --gold-pale: rgba(255, 178, 62, 0.16);
+
+    --sand: #c2a36b;
+    --sand-pale: rgba(194, 163, 107, 0.16);
+
+    --slate: #717a88;
+    --slate-pale: rgba(113, 122, 136, 0.18);
+
+    --void: #07080b;
+    --void-2: #0c0e12;
+    --surface: #13161c;
+    --surface-2: #1b1f27;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.16);
+
+    --ink: #f4f1ec;
+    --ink-dim: #8c93a0;
+    --ink-faint: #565d68;
+
+    /* Space-separated triplets alongside the hex vars above, purely so tailwind.config.js can hand
+       them to Tailwind's `rgb(var(--x) / <alpha-value>)` convention. A `bg-surface-2/50`-style
+       opacity modifier silently produced no CSS rule at all when the theme color pointed straight
+       at the hex var — Tailwind can't slot an alpha channel into "#1b1f27". Every existing `/NN`
+       usage in the app (error alerts, hover tints, badges — ~30 call sites) was affected the same
+       way and had simply never been seen rendered. The hex vars above are untouched, so the ~100
+       places that reference them directly (gradients, box-shadows, arbitrary `[var(--crimson)]`
+       values) keep working exactly as before. */
+    --crimson-rgb: 255 59 74;
+    --crimson-light-rgb: 255 124 115;
+    --crimson-deep-rgb: 168 17 42;
+    --alarm-rgb: 227 28 47;
+    --alarm-light-rgb: 255 92 97;
+    --ember-rgb: 255 122 61;
+    --gold-rgb: 255 178 62;
+    --sand-rgb: 194 163 107;
+    --slate-rgb: 113 122 136;
+    --void-rgb: 7 8 11;
+    --void-2-rgb: 12 14 18;
+    --surface-rgb: 19 22 28;
+    --surface-2-rgb: 27 31 39;
+    --ink-rgb: 244 241 236;
+    --ink-dim-rgb: 140 147 160;
+    --ink-faint-rgb: 86 93 104;
+
+    --radius-lg: 22px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    margin: 0;
+  }
+
+  body {
+    @apply min-h-screen overflow-x-hidden font-sans text-ink;
+    background: var(--void);
+  }
+
+  /* Static base tint under the animated aurora — a fixed, composited layer that
+     keeps a faint glow if the orbs are frozen (reduced motion) or still warming up. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background-image: radial-gradient(
+        circle at 16% -10%,
+        rgba(255, 59, 74, 0.10),
+        transparent 55%
+      ),
+      radial-gradient(circle at 90% 4%, rgba(255, 122, 61, 0.06), transparent 50%);
+  }
+}
+
+@layer components {
+  /* translucent glass panel so the ambient aurora reads through; faint crimson tint keeps the brand warmth */
+  .surface-panel {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(
+        0deg,
+        rgba(255, 59, 74, 0.045),
+        rgba(255, 59, 74, 0.045)
+      ),
+      rgba(9, 10, 14, 0.44);
+    backdrop-filter: blur(16px) saturate(125%);
+    -webkit-backdrop-filter: blur(16px) saturate(125%);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* primary CTA — frosted crimson glass so it matches the panels/nav while staying clearly the red button */
+  .btn-sea {
+    background: linear-gradient(
+      135deg,
+      rgba(201, 45, 58, 0.58),
+      rgba(156, 18, 40, 0.58)
+    );
+    border: 1px solid rgba(255, 90, 100, 0.32);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3),
+      0 1px 0 rgba(255, 255, 255, 0.1) inset;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+  }
+  .btn-sea:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(216, 51, 63, 0.72),
+      rgba(170, 21, 48, 0.72)
+    );
+    border-color: rgba(255, 90, 100, 0.5);
+    box-shadow: 0 14px 32px rgba(168, 17, 42, 0.3),
+      0 0 0 1px rgba(255, 90, 100, 0.24) inset;
+  }
+
+  /* Radial glow that fades in on the upload dropzone */
+  .upload-glow::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      circle at 50% 0%,
+      rgba(255, 59, 74, 0.18),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+  }
+  .upload-glow:hover::before {
+    opacity: 1;
+  }
+
+  /* Thin themed scrollbar */
+  .scroll-thin {
+    scrollbar-width: thin;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: var(--void-2);
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 3px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--crimson);
+  }
+}

@@ -1,0 +1,39 @@
+# Sedona — Model Evaluation Prototype
+# Python 3.12+  |  install: pip install -r requirements.txt streamlit
+
+# Vector store
+chromadb>=0.6.0
+# chroma needs sqlite >= 3.35; this shim is only importable on linux, hence the marker
+pysqlite3-binary; sys_platform == 'linux'
+
+# API layer (FRONTEND/api.py) — these were missing entirely, so a clean install could not
+# start the server at all
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+
+# local GPU inference: run_gpu.sh serves the chat and embedding models with llama_cpp.server
+llama-cpp-python[server]>=0.3.0
+
+# Text splitting
+langchain-text-splitters>=0.3.0
+
+# PDF parsing
+PyMuPDF>=1.24.0
+
+# Excel parsing (reads uploaded HECVAT workbooks)
+openpyxl>=3.1.0
+
+# PDF report generation
+reportlab>=4.2.0
+
+# PowerPoint executive briefing generation
+python-pptx>=0.6.23
+
+# Data handling (GUI history table / dataframes)
+pandas>=2.2.0
+
+# Progress bars (CLI benchmark output)
+tqdm>=4.66.0
+
