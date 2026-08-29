@@ -147,11 +147,13 @@ Those values are examples. Choose your own and never deploy with a placeholder p
 
 - The username and password must be set **together**, or the API stops rather than creating a
   half-configured account.
-- Password: at least 12 characters. Username: 3–64 characters.
+- Password: at least 12 characters, using at least three of lowercase, uppercase, digits and
+  symbols. Username: 3–64 characters.
 - Export the variables directly — **do not `source .env.example`**.
 - Remove them from the environment once the first start succeeds.
 
-Self-service sign-up, where enabled, only ever creates a viewer.
+Self-service sign-up is always available from the sign-in page and cannot be turned off, but it
+only ever creates a Viewer, which can do nothing until an admin promotes it.
 
 ### Completing the setup
 
