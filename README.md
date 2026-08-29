@@ -366,10 +366,3 @@ Logs are written to `logs/` by default: `llm.log` for the two engines, `api.log`
 Sedona does not make a vendor compliant. It produces decision support that requires qualified
 human review.
 
----
-
-## Further documentation
-
-Two companion documents accompany this repository: the **Sedona User Documentation**, covering
-installation, the assessor workflow and troubleshooting; and the **LLM Implementation Guide**,
-covering the model architecture, deployment and operational notes.
