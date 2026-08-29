@@ -38,7 +38,7 @@ first.
 | --- | --- |
 | **NVIDIA GPU + driver** | If no GPU is visible, setup stops with an explanation rather than quietly producing a slow CPU-only build. |
 | **Node.js 18+ with npm** | The one dependency the installer will not fetch for you. |
-| **`curl` or `wget`** | Either one. Every download depends on it. |
+| **`curl`** | Required. `wget` is accepted as a substitute while installing, but the launcher's health checks use `curl` only. |
 | **Outbound internet** | First install only. |
 | **A normal (non-root) user account** | Do not run `start.sh` as root. |
 
@@ -47,7 +47,7 @@ Check them before installing anything:
 ```bash
 node --version      # v18, v20 or v22+
 npm --version       # any version
-curl --version      # or: wget --version
+curl --version      # required
 nvidia-smi          # a table listing at least one GPU
 ```
 
