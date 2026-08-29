@@ -21,7 +21,8 @@ Fahadullah Ahamedullah, Ryan Alex, Sakina Shabbar, Saleh Khan and Izaan Shumaiz.
 ## Platform support
 
 **Sedona runs on Ubuntu Linux.** The reference deployment is **Ubuntu 20.04 LTS (server)** on a
-GPU-backed VM, and newer releases such as 22.04 and 24.04 work as well.
+GPU-backed VM. Newer releases such as 22.04 and 24.04 are expected to work — the version-specific
+work in the installer is all about tolerating *older* hosts — but they have not been tested.
 
 The installer builds everything it needs inside the project folder, so it works on an older or
 locked-down Ubuntu host without root: nothing is installed system-wide, `sudo` is never required,
@@ -63,6 +64,9 @@ matching toolkit inside the project folder.
 | vCPUs / RAM | 24 vCPUs / 64 GB |
 | Python | 3.12+ (installed for you) |
 | Storage | Room for the vector store, ~2.8 GB of model weights and generated reports |
+
+These figures are the provisioned VM specification as reported, not a measured or independently
+confirmed allocation.
 
 Running other GPU workloads on the same host at the same time is not recommended — 8 GB of VRAM is
 workable for the chat model, but tight.
