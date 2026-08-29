@@ -55,7 +55,9 @@ nvidia-smi          # a table listing at least one GPU
 CUDA itself is **not** a prerequisite — the installer detects your GPU and driver and installs a
 matching toolkit inside the project folder.
 
-### Reference deployment
+### Tested on
+
+Sedona was developed and tested on a university-provided GPU virtual machine:
 
 | Component | Specification |
 | --- | --- |
@@ -64,9 +66,6 @@ matching toolkit inside the project folder.
 | vCPUs / RAM | 24 vCPUs / 64 GB |
 | Python | 3.12+ (installed for you) |
 | Storage | Room for the vector store, ~2.8 GB of model weights and generated reports |
-
-These figures are the provisioned VM specification as reported, not a measured or independently
-confirmed allocation.
 
 Running other GPU workloads on the same host at the same time is not recommended — 8 GB of VRAM is
 workable for the chat model, but tight.
@@ -77,9 +76,10 @@ The first installation is the only stage that needs the internet, to download Py
 toolkit, the model weights (~2.8 GB) and the frontend packages. **An air-gapped first installation is
 not supported.** After that, Sedona runs entirely locally.
 
-In the reference deployment the VM sits on the institution's internal network and is reachable only
-over a VPN. Per-user sign-in sits in front of the application regardless, so the VPN is the outer
-boundary and the user account is the access control that matters day to day.
+Sedona does not require a VPN. By default the web interface listens on all interfaces, so it can be
+reached from other machines on the network, while the API listens on localhost only and is reached
+through the frontend. Access control is per-user sign-in — everything is behind an account, so add
+network-level restrictions only if your deployment calls for them.
 
 ---
 
@@ -361,7 +361,9 @@ Logs are written to `logs/` by default: `llm.log` for the two engines, `api.log`
   can take twelve minutes or more.
 - **No automatic CPU fallback.** CPU is available only by deliberately setting `SEDONA_FORCE_CPU=1`.
 - **Model downloads are not checksum-verified.**
-- **A clean-machine acceptance test has not yet been recorded** against this release.
+- **The from-scratch install has not been formally recorded.** Sedona has been run and tested on
+  the machine above, but a clean-machine installation has not been carried out and documented
+  end to end against this release.
 
 Sedona does not make a vendor compliant. It produces decision support that requires qualified
 human review.
