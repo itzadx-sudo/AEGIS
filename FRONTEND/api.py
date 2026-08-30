@@ -1640,8 +1640,12 @@ def health(strict: bool = False):
     }
     if not healthy:
         reasons = []
-        if not services["llm"]["reachable"]:        reasons.append("LLM server unreachable")
-        if not services["embeddings"]["reachable"]: reasons.append("embedding server unreachable")
+        # gpu_engine attaches an "error" when it knows more than "the port did not answer" —
+        # under the ollama backend that is usually a model tag that was never pulled
+        if not services["llm"]["reachable"]:
+            reasons.append(services["llm"].get("error") or "LLM server unreachable")
+        if not services["embeddings"]["reachable"]:
+            reasons.append(services["embeddings"].get("error") or "embedding server unreachable")
         if not chroma["reachable"]:                 reasons.append("vector store unreadable")
         elif policy_chunks == 0:                    reasons.append("no policy or HECVAT template chunks ingested")
         body["reasons"] = reasons

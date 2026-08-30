@@ -1,4 +1,5 @@
 import os
+import platform
 import sys
 from pathlib import Path
 
@@ -7,6 +8,27 @@ from pathlib import Path
 PYBIN = os.environ.get("SEDONA_PYBIN", sys.executable)
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Which inference stack serves the two models.
+#   "llama_cpp" — two local llama.cpp servers on separate ports, launched by run_gpu.sh.
+#                 Needs an NVIDIA GPU and the CUDA build; this is the Linux deployment.
+#   "ollama"    — one local Ollama daemon serving both. A signed-in daemon resolves "*-cloud"
+#                 model tags against ollama.com, so this is also how macOS reaches Ollama Cloud.
+# Defaulting by platform means neither OS needs configuring, and Linux reaches every value below
+# through exactly the same branch it always did.
+LLM_BACKEND = os.environ.get(
+    "SEDONA_LLM_BACKEND",
+    "ollama" if platform.system() == "Darwin" else "llama_cpp",
+).strip().lower()
+if LLM_BACKEND not in ("llama_cpp", "ollama"):
+    raise RuntimeError(
+        f"SEDONA_LLM_BACKEND must be 'llama_cpp' or 'ollama', not {LLM_BACKEND!r}"
+    )
+_OLLAMA = LLM_BACKEND == "ollama"
+
+# ollama's fixed port. Both services point here under the ollama backend — one daemon answers
+# /v1/chat/completions and /v1/embeddings, so there is no second port to allocate.
+OLLAMA_PORT = 11434
 
 
 # bootstrap fetches the weights into the checkout, while a hand-built install keeps them in
@@ -31,12 +53,14 @@ def _env_port(name: str, default: int) -> int:
     return value
 
 
+# GGUF paths are read only by run_gpu.sh, which never runs under the ollama backend. They stay
+# defined unconditionally anyway, so the llama_cpp path can never trip over a missing attribute.
 LLM_GGUF_PATH = os.environ.get(
     "SEDONA_LLM_GGUF",
     str(MODEL_DIR / "google_gemma-3-4b-it-Q4_K_M.gguf"),
 )
 LLM_SERVER_HOST = os.environ.get("SEDONA_LLM_HOST", "127.0.0.1")
-LLM_SERVER_PORT = _env_port("SEDONA_LLM_PORT", 8000)
+LLM_SERVER_PORT = _env_port("SEDONA_LLM_PORT", OLLAMA_PORT if _OLLAMA else 8000)
 LLM_SERVER_URL = os.environ.get(
     "SEDONA_LLM_URL",
     f"http://{LLM_SERVER_HOST}:{LLM_SERVER_PORT}/v1/chat/completions",
@@ -48,17 +72,35 @@ EMBED_GGUF_PATH = os.environ.get(
     str(MODEL_DIR / "nomic-embed-text-v1.5.f16.gguf"),
 )
 EMBED_SERVER_HOST = os.environ.get("SEDONA_EMBED_HOST", "127.0.0.1")
-EMBED_SERVER_PORT = _env_port("SEDONA_EMBED_PORT", 8001)
+# same daemon as the chat model under ollama, hence the same port
+EMBED_SERVER_PORT = _env_port("SEDONA_EMBED_PORT", OLLAMA_PORT if _OLLAMA else 8001)
 EMBED_SERVER_URL = os.environ.get(
     "SEDONA_EMBED_URL",
     f"http://{EMBED_SERVER_HOST}:{EMBED_SERVER_PORT}/v1/embeddings",
 )
 
-N_GPU_LAYERS = -1          # -1 = push every layer onto the gpu, nothing stays on cpu
+N_GPU_LAYERS = -1          # -1 = push every layer onto the gpu, nothing stays on cpu (llama_cpp only)
 
-# llama.cpp ignores the "model" field — these are display labels only
-LLM_MODEL       = "gemma-3-4b-it"
-EMBED_MODEL     = "nomic-embed-text"
+# llama.cpp ignores the "model" field, so under that backend these are display labels only.
+# Under the ollama backend they are the tags Ollama actually resolves.
+#
+#   ── CHANGE THE MODEL BY EDITING THE LLM_MODEL LINE BELOW ──
+#
+# Any tag `ollama list` reports works. Tags ending in "-cloud" run on Ollama Cloud (the daemon
+# proxies them to ollama.com, so prompt content leaves this machine); everything else runs
+# locally on Metal. Known-good choices:
+#   gemma4:31b-cloud    cloud, Gemma lineage — the default, closest to what SYSTEM_PROMPT was tuned on
+#   gpt-oss:120b-cloud  cloud, strongest; keeps its reasoning in a separate field, so parsing is unaffected
+#   gemma4:e4b-mlx      local, Apple Silicon
+#   gemma3:4b           local, the same weights the Linux deployment serves
+LLM_MODEL   = os.environ.get(
+    "SEDONA_LLM_MODEL",
+    "gemma4:31b-cloud" if _OLLAMA else "gemma-3-4b-it",
+)
+# same f16 nomic-embed-text-v1.5 weights either way, and embed.py adds the search_query: /
+# search_document: prefixes itself on both — so a chroma_db built under one backend is readable
+# under the other
+EMBED_MODEL = os.environ.get("SEDONA_EMBED_MODEL", "nomic-embed-text")
 
 # anchored to the project root, never the cwd — launching from a different folder used to
 # split sessions across two reports/ directories
@@ -117,7 +159,9 @@ INSTITUTIONAL_APPLICABILITY = {
     "on_premises": _env_bool("SEDONA_APPLICABILITY_ON_PREMISES", True),
 }
 
-# ceiling for the current GPU vram budget — check headroom before raising
+# ceiling for the current GPU vram budget — check headroom before raising.
+# A llama.cpp launch flag only: run_gpu.sh passes it as --n_ctx. Ollama sets context per model
+# server-side (gemma4:31b-cloud reports 131k), so this value is inert under the ollama backend.
 LLM_NUM_CTX = 6144
 CONSISTENCY_RUNS = 1
 CONSISTENCY_TEMPERATURE = float(os.environ.get("SEDONA_CONSISTENCY_TEMPERATURE", "0.1"))

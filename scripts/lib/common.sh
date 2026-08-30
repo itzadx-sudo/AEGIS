@@ -53,6 +53,46 @@ venv_usable() {
   [[ -x "$py" ]] && "$py" -c 'import uvicorn, fastapi' >/dev/null 2>&1
 }
 
+# ── Inference backend ────────────────────────────────────────────────────────
+# Which stack serves the models. Mirrors BACKEND/config.py's platform default, because the
+# installer has to decide this before there is necessarily an interpreter to ask.
+#   llama_cpp — build a CUDA toolchain and two local GGUF servers (steps 30 and 40)
+#   ollama    — one Ollama daemon; nothing is compiled, so steps 30 and 40 are skipped entirely
+sedona_backend() {
+  if [[ -n "${SEDONA_LLM_BACKEND:-}" ]]; then
+    echo "${SEDONA_LLM_BACKEND}"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    echo ollama
+  else
+    echo llama_cpp
+  fi
+}
+
+using_ollama() { [[ "$(sedona_backend)" == "ollama" ]]; }
+
+# Ask config.py whenever an interpreter exists, so there is one source of truth. The literal
+# fallbacks are only reached before 10-python has run; keep them in step with the LLM_MODEL and
+# EMBED_MODEL block in BACKEND/config.py.
+_config_value() {
+  local py; py="$(venv_python)"
+  [[ -x "$py" ]] || return 1
+  "$py" -c "import sys; sys.path.insert(0, '$PROJECT_ROOT/BACKEND'); import config; print(config.$1)" 2>/dev/null
+}
+
+ollama_llm_model()   { _config_value LLM_MODEL   || echo "${SEDONA_LLM_MODEL:-gemma4:31b-cloud}"; }
+ollama_embed_model() { _config_value EMBED_MODEL || echo "${SEDONA_EMBED_MODEL:-nomic-embed-text}"; }
+
+ollama_present() { need_cmd ollama; }
+
+# `ollama list` needs the daemon; without it every model check would read as "not pulled"
+ollama_daemon_up() { ollama list >/dev/null 2>&1; }
+
+# ollama reports untagged models as "<name>:latest", so accept the bare name too
+ollama_model_present() {
+  local want="$1"
+  ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qxF -e "$want" -e "$want:latest"
+}
+
 # ── GPU detection ────────────────────────────────────────────────────────────
 # Hardcoding CUDA 11.8 / sm_75 only ever described this one VM. Both facts are readable off
 # the machine, so read them.

@@ -13,8 +13,12 @@ uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
 pydantic>=2.6.0
 
-# local GPU inference: run_gpu.sh serves the chat and embedding models with llama_cpp.server
-llama-cpp-python[server]>=0.3.0
+# local GPU inference: run_gpu.sh serves the chat and embedding models with llama_cpp.server.
+# Linux only, matching the marker on pysqlite3-binary above: the macOS deployment serves both
+# models through Ollama and never imports this, and an unmarked line makes a plain
+# `pip install -r requirements.txt` on a Mac spend ~20 minutes compiling it from source.
+# (scripts/steps/20-requirements.sh filters this line out either way — 40-llama.sh builds it.)
+llama-cpp-python[server]>=0.3.0; sys_platform == 'linux'
 
 # Text splitting
 langchain-text-splitters>=0.3.0

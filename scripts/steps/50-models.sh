@@ -1,11 +1,58 @@
 #!/usr/bin/env bash
-# Fetch the two GGUF model files into the project's models/ folder.
+# Make the chat and embedding models available to whichever backend is in use.
 #
-# These are ~3.5 GB of weights and are deliberately not in git or the submission zip. They are
-# plain data: nothing here is compiled, and the same files work on CPU or GPU.
+# llama_cpp — fetch the two GGUF files into the project's models/ folder. These are ~3.5 GB of
+#             weights, deliberately not in git or the submission zip. They are plain data:
+#             nothing here is compiled, and the same files work on CPU or GPU.
+# ollama    — ask the daemon to pull the two tags. A "*-cloud" tag is a few hundred bytes of
+#             manifest rather than gigabytes of weights: the model itself stays on ollama.com.
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 STEP=models
+
+# ── ollama backend ───────────────────────────────────────────────────────────
+if using_ollama; then
+  LLM_TAG="$(ollama_llm_model)"
+  EMBED_TAG="$(ollama_embed_model)"
+
+  ollama_present || die "the 'ollama' command was not found.
+       Install Ollama from https://ollama.com/download and re-run.
+       Ollama is the one dependency this bootstrap cannot install for you."
+
+  ollama_daemon_up || die "the Ollama daemon is not responding.
+       Open Ollama.app, or run 'ollama serve' in another terminal, then re-run."
+
+  pull_tag() {  # $1 = tag, $2 = human label
+    local tag="$1" label="$2"
+    if ollama_model_present "$tag"; then
+      ok "$label already present: $tag"
+      return 0
+    fi
+    log "pulling the $label ($tag)"
+    if ollama pull "$tag"; then
+      ok "$label ready: $tag"
+      return 0
+    fi
+    # A cloud tag resolves through your ollama.com account, so an unauthenticated daemon fails
+    # here with an error that does not name the actual fix.
+    case "$tag" in
+      *-cloud) die "could not pull '$tag'.
+       Cloud models need an ollama.com account. Run 'ollama signin' and re-run.
+       To stay entirely local instead, set LLM_MODEL in BACKEND/config.py to a local tag
+       such as gemma3:4b." ;;
+      *)       die "could not pull '$tag'. Check the tag name against 'ollama list'." ;;
+    esac
+  }
+
+  pull_tag "$LLM_TAG"   "chat model"
+  pull_tag "$EMBED_TAG" "embedding model"
+
+  ok "models ready via ollama"
+  mark_done "$STEP"
+  exit 0
+fi
+
+# ── llama_cpp backend ────────────────────────────────────────────────────────
 
 CHAT_NAME="$(basename "${SEDONA_LLM_GGUF:-google_gemma-3-4b-it-Q4_K_M.gguf}")"
 EMBED_NAME="$(basename "${SEDONA_EMBED_GGUF:-nomic-embed-text-v1.5.f16.gguf}")"

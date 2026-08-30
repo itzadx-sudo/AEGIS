@@ -4,12 +4,15 @@
 #   ./start.sh                     start what is down, reuse what is already healthy
 #   ./start.sh --adopt             ...and take ownership of the healthy ones, so Ctrl-C stops them
 #   ./start.sh --stop              stop this checkout's API and frontend
-#   ./start.sh --stop --engines    ...and the llama.cpp chat/embedding servers
+#   ./start.sh --stop --engines    ...and the llama.cpp engines (llama_cpp backend only)
 #   ./start.sh --restart-api       replace only the API process (backend code changed)
 #
-# Ownership is proven before anything is signalled: a process counts as ours only when
-# /proc/<pid>/cwd resolves inside this checkout. Nothing is ever killed by port, so a second
+# Ownership is proven before anything is signalled: a process counts as ours only when its
+# working directory resolves inside this checkout. Nothing is ever killed by port, so a second
 # Sedona elsewhere on the host, or a hand-started engine, is never disturbed.
+#
+# Under the ollama backend (the macOS default) there are no engines to manage: one shared daemon
+# serves both models, Sedona never owns it, and --engines therefore has nothing to act on.
 #
 # Plain `./start.sh` still reuses healthy services without adopting them, so a bare run stays
 # a safe health check that cannot take the GPU engines down on Ctrl-C. The cost of that is the
@@ -17,6 +20,13 @@
 # launch keeps running with no controlling terminal, so no Ctrl-C can ever reach it, and every
 # later run just prints "nothing to manage" and exits. --adopt and --stop are the way out.
 set -euo pipefail
+
+# macOS ships bash 3.2 (no mapfile), has no /proc, no ss, no ip and no setsid. Every primitive
+# that differs is isolated behind a helper below rather than sprinkled through the logic.
+case "$(uname -s)" in
+  Darwin) IS_MACOS=1 ;;
+  *)      IS_MACOS=0 ;;
+esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$HERE/BACKEND"
@@ -35,9 +45,18 @@ FRONTEND_PORT="${SEDONA_FRONTEND_PORT:-5173}"
 # hardcoding it: a deployment's address belongs in the environment, not in source, and a
 # hardcoded one goes stale the first time the VM moves. SEDONA_PUBLIC_URL still wins when set.
 host_address() {
-  local addr
-  addr="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p')"
-  [[ -n "$addr" ]] || addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  local addr=""
+  if (( IS_MACOS )); then
+    # no `ip` and no `hostname -I`; ask the interfaces directly, wired before wireless
+    local iface
+    for iface in $(route -n get default 2>/dev/null | sed -n 's/.*interface: *//p') en0 en1; do
+      addr="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      [[ -n "$addr" ]] && break
+    done
+  else
+    addr="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p')"
+    [[ -n "$addr" ]] || addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
   printf '%s\n' "$addr"
 }
 case "$FRONTEND_HOST" in
@@ -124,18 +143,60 @@ resolve_pybin() {
   exit 1
 }
 
-# ── Process inspection ───────────────────────────────────────────────────────
-proc_cmd() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null; }
-proc_cwd() { readlink "/proc/$1/cwd" 2>/dev/null; }
-
-proc_ppid() {
-  local stat
-  stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 1
-  stat="${stat##*') '}"   # comm is parenthesised and may contain spaces; skip past it
-  # shellcheck disable=SC2086
-  set -- $stat            # $1 = state, $2 = ppid
-  printf '%s\n' "$2"
+# macOS has no setsid. That matters beyond the missing binary: a backgrounded subshell in a
+# non-interactive shell is NOT a process group leader, so cleanup()'s `kill -TERM -- "-$pid"`
+# would quietly fall through to the single-PID path and orphan uvicorn's and Vite's children.
+# Re-exec through Python's os.setsid() instead, which gives a real session either way.
+DETACH=()
+resolve_detach() {
+  (( ${#DETACH[@]} )) && return 0
+  if command -v setsid >/dev/null 2>&1; then
+    DETACH=(setsid)
+  else
+    resolve_pybin
+    DETACH=("$PYBIN" -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])')
+  fi
+  return 0
 }
+
+# ── Portability helpers ──────────────────────────────────────────────────────
+# bash 3.2 has no mapfile, and `arr=( $(cmd) )` would word-split on the paths and command lines
+# these arrays hold. Read line by line instead; dynamic scoping lets the caller's `local -a`
+# array be the one filled in.  Usage: read_lines <array-name> <command> [args...]
+read_lines() {
+  local __arr="$1"; shift
+  local __line
+  eval "$__arr=()"
+  while IFS= read -r __line; do
+    [[ -n "$__line" ]] || continue
+    eval "$__arr+=(\"\$__line\")"
+  done < <("$@")
+}
+
+# ── Process inspection ───────────────────────────────────────────────────────
+if (( IS_MACOS )); then
+  proc_cmd() { ps -o command= -p "$1" 2>/dev/null; }
+  # lsof is the only way to read another process's cwd on macOS; -Fn prefixes the path with 'n'
+  proc_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
+  proc_ppid() {
+    local ppid
+    ppid="$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" || return 1
+    [[ -n "$ppid" ]] || return 1
+    printf '%s\n' "$ppid"
+  }
+else
+  proc_cmd() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null; }
+  proc_cwd() { readlink "/proc/$1/cwd" 2>/dev/null; }
+
+  proc_ppid() {
+    local stat
+    stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 1
+    stat="${stat##*') '}"   # comm is parenthesised and may contain spaces; skip past it
+    # shellcheck disable=SC2086
+    set -- $stat            # $1 = state, $2 = ppid
+    printf '%s\n' "$2"
+  }
+fi
 
 # A zombie still answers `kill -0`, so a liveness check that only uses that would wait forever
 # on a child nobody has reaped.
@@ -144,11 +205,15 @@ alive() {
   [[ "$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ')" != Z* ]]
 }
 
-port_held() { ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN; }
+if (( IS_MACOS )); then
+  port_held() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+else
+  port_held() { ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN; }
+fi
 
 # Emits "label<TAB>pid" for every Sedona process that provably belongs to THIS checkout.
-# /proc/<pid>/cwd is the proof: run_gpu.sh's engines sit in BACKEND, uvicorn and Vite in
-# FRONTEND. Another user's processes are skipped automatically because their cwd is unreadable.
+# proc_cwd is the proof: run_gpu.sh's engines sit in BACKEND, uvicorn and Vite in FRONTEND.
+# Another user's processes are skipped automatically because their cwd is unreadable.
 discover_sedona() {
   local pid cmd cwd
   for pid in $(pgrep -u "$(id -u)" -f 'uvicorn api:app|llama_cpp\.server|vite|npm run dev' 2>/dev/null || true); do
@@ -225,6 +290,9 @@ stop_entries() {
   return 0
 }
 
+# Only the llama_cpp backend has engines of its own. Under ollama, discover_sedona finds no
+# llama_cpp.server processes at all — and the ollama daemon is deliberately not in its search
+# pattern, so --adopt and --stop --engines can never take over or kill shared user infrastructure.
 in_scope_label() {
   case "$1" in
     LLM|embeddings) (( INCLUDE_ENGINES )) ;;
@@ -240,7 +308,7 @@ stop_scope() {
   local -a found=() targets=() spared=() supervisors=() ports=()
   local entry label pid sup other
 
-  mapfile -t found < <(discover_sedona)
+  read_lines found discover_sedona
   if (( ${#found[@]} == 0 )); then
     ok "No Sedona processes from this checkout are running."
     return 0
@@ -300,7 +368,7 @@ stop_scope() {
   # A supervisor that gave up on a stubborn child warns and leaves it; re-sweep so --stop means
   # stopped. This also catches a child respawned by npm between the two passes.
   local -a leftovers=()
-  mapfile -t found < <(discover_sedona)
+  read_lines found discover_sedona
   for entry in "${found[@]:-}"; do
     [[ -n "$entry" ]] || continue
     label="${entry%%$'\t'*}"; pid="${entry##*$'\t'}"
@@ -361,7 +429,8 @@ if [[ "$MODE" == "restart-api" ]]; then
     fail "Port $API_PORT is still held; not rebinding."
     exit 1
   fi
-  ( cd "$FRONTEND_DIR" && exec setsid nohup "$PYBIN" -m uvicorn api:app \
+  resolve_detach
+  ( cd "$FRONTEND_DIR" && exec "${DETACH[@]}" nohup "$PYBIN" -m uvicorn api:app \
       --host "$API_HOST" --port "$API_PORT" >> "$LOG_DIR/api.log" 2>&1 ) &
   for _ in $(seq 1 40); do
     sleep 1
@@ -390,9 +459,10 @@ start_owned() {
   local log_file="$3"
   shift 3
 
+  resolve_detach
   (
     cd "$work_dir"
-    exec setsid "$@" > "$log_file" 2>&1
+    exec "${DETACH[@]}" "$@" > "$log_file" 2>&1
   ) &
   local pid=$!
   OWNED_PIDS+=("$pid")
@@ -455,7 +525,7 @@ echo
 adopt_running() {
   local -a found=() supervisors=() spared=()
   local entry label pid sup
-  mapfile -t found < <(discover_sedona)
+  read_lines found discover_sedona
   (( ${#found[@]} )) || { log "Nothing is running yet; nothing to adopt."; return 0; }
   for entry in "${found[@]}"; do
     label="${entry%%$'\t'*}"; pid="${entry##*$'\t'}"
@@ -494,7 +564,7 @@ adopt_running() {
 report_unmanaged() {
   local -a found=()
   local entry label pid sup
-  mapfile -t found < <(discover_sedona)
+  read_lines found discover_sedona
   (( ${#found[@]} )) || return 0
   for entry in "${found[@]}"; do
     label="${entry%%$'\t'*}"; pid="${entry##*$'\t'}"
@@ -513,11 +583,29 @@ if (( ADOPT )); then
 fi
 
 log "Checking local inference services..."
-LLM_PORT="$("$PYBIN" -c 'import sys; sys.path.insert(0, "BACKEND"); import config; print(config.LLM_SERVER_PORT)')"
-EMBED_PORT="$("$PYBIN" -c 'import sys; sys.path.insert(0, "BACKEND"); import config; print(config.EMBED_SERVER_PORT)')"
+# config.py stays the single source of truth for the shell scripts, exactly as run_gpu.sh does it
+read_cfg() { "$PYBIN" -c "import sys; sys.path.insert(0, '$HERE/BACKEND'); import config; print(config.$1)"; }
+LLM_BACKEND="$(read_cfg LLM_BACKEND)"
+LLM_PORT="$(read_cfg LLM_SERVER_PORT)"
+EMBED_PORT="$(read_cfg EMBED_SERVER_PORT)"
 
 if port_up "$LLM_PORT" && port_up "$EMBED_PORT"; then
   ok "LLM and embeddings are already healthy; reusing them."
+  # a daemon that is up but missing the tag passes this check and then fails every control
+  if [[ "$LLM_BACKEND" == "ollama" ]]; then
+    ( cd "$BACKEND_DIR" && "$PYBIN" -c 'import gpu_engine; gpu_engine.warn_missing_models()' ) || true
+  fi
+elif [[ "$LLM_BACKEND" == "ollama" ]]; then
+  # One shared daemon serves both models, and it is not ours: on macOS it is normally the
+  # Ollama.app menu-bar agent. Sedona never starts it and never stops it, so there is nothing to
+  # own here — just say what to do.
+  fail "Ollama is not answering on port $LLM_PORT."
+  echo "  Start it (open Ollama.app, or run 'ollama serve'), then re-run ./start.sh."
+  echo "  First time on this machine, sign in and fetch the two models:"
+  echo "    ollama signin"
+  echo "    ollama pull $(read_cfg LLM_MODEL)"
+  echo "    ollama pull $(read_cfg EMBED_MODEL)"
+  exit 1
 else
   # a python carrying the API's dependencies says nothing about whether the engines can run, so
   # check the whole install here — otherwise a missing piece only shows up as a silent wait
